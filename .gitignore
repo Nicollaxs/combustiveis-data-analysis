@@ -1,0 +1,9 @@
+# Segredos (nunca versionar)
+.env
+# Dados e artefatos gerados
+pipeline/data/
+pipeline/logs/
+pipeline/config/airflow.cfg
+.venv/
+__pycache__/
+*.pyc

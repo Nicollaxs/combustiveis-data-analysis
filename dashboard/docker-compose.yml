@@ -1,0 +1,20 @@
+# Nome fixo: mantém containers/imagem mesmo se a pasta mudar de nome
+name: dashboard_gasolina
+
+services:
+  dashboard:
+    build: .
+    container_name: dashboard-gasolina
+    ports:
+      - "127.0.0.1:8501:8501"
+    env_file:
+      - .env   # credenciais do usuário somente leitura (dashboard_ro) no banco analytics
+    networks: [default, analytics]
+    restart: unless-stopped
+    mem_limit: 1g
+
+networks:
+  # rede criada pelo compose de ../pipeline (onde está o Postgres com a camada gold)
+  analytics:
+    name: analytics-net
+    external: true
