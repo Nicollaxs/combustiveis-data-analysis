@@ -85,3 +85,11 @@ docker exec -it pipeline-postgres psql -U analytics_writer -d analytics \
 
 - Logs do Airflow em `logs/` — limpar periodicamente (ex.: apagar com mais de 30 dias).
 - Disco: bronze ~1 GB de CSV, silver bem menor (Parquet comprimido).
+
+## Avisos por email
+
+- Sucesso: task final `notificar_sucesso` envia resumo (se houve dado novo da ANP, semana mais recente, preço médio).
+- Erro: `on_failure_callback` (`include/notificar.py`) envia email só quando a task falha de vez (após os 2 retries).
+- Envio via SMTP do Gmail (`smtp.gmail.com:465`) com **senha de app** — gratuito, sem serviço de terceiros.
+- Variáveis no `.env`: `SMTP_USER`, `SMTP_PASSWORD`, `NOTIFY_EMAIL`. Sem elas o envio é só pulado (com warning no log).
+- Após mudar o `.env`: `docker compose up -d` (recria os containers para lerem as variáveis).

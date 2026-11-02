@@ -1,11 +1,13 @@
 """Pipeline semanal de preços de combustíveis da ANP.
 
 extrair (bronze) -> bronze_para_silver (Spark) -> silver_para_gold (Spark -> Postgres) -> validar_gold
+-> notificar_sucesso (email). Em caso de erro (após os retries), on_failure_callback manda email.
 """
 
 import pendulum
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.sdk import dag, task
+from notificar import ao_falhar
 
 # Spark em modo local, dentro do container do scheduler (LocalExecutor).
 # Driver de 5 GB cabe no mem_limit de 8 GB do scheduler; 3 threads para não monopolizar as 4 OCPUs.
@@ -23,7 +25,11 @@ JOBS = "/opt/airflow/include/jobs"
     start_date=pendulum.datetime(2026, 10, 1, tz="America/Sao_Paulo"),
     catchup=False,
     max_active_runs=1,
-    default_args={"retries": 2, "retry_delay": pendulum.duration(minutes=10)},
+    default_args={
+        "retries": 2,
+        "retry_delay": pendulum.duration(minutes=10),
+        "on_failure_callback": ao_falhar,  # email só na falha definitiva
+    },
     tags=["anp", "spark"],
     doc_md=__doc__,
 )
@@ -65,8 +71,29 @@ def anp_precos_combustiveis():
         if erros:
             raise ValueError("; ".join(erros))
         print(f"OK: 27 UFs, Brasil R$ {preco_br} na semana {semana} ({dias} dias atrás)")
+        return {"semana": str(semana), "preco_br": float(preco_br), "dias": dias}
 
-    extrair() >> bronze_para_silver >> silver_para_gold >> validar_gold()
+    @task(retries=0)
+    def notificar_sucesso(extracao: dict, validacao: dict):
+        from notificar import enviar
+
+        novos = extracao["baixados"]
+        status = "DADOS NOVOS da ANP" if novos else "sem dados novos da ANP"
+        corpo = (
+            f"A pipeline anp_precos_combustiveis rodou com sucesso ({status}).\n\n"
+            f"Arquivos baixados agora: {novos} (de {extracao['selecionados']} selecionados)\n"
+            f"Semana mais recente no dashboard: {validacao['semana']} ({validacao['dias']} dias atrás)\n"
+            f"Preço médio Brasil: R$ {validacao['preco_br']:.2f}\n\n"
+            f"Dashboard: https://combustivel.nicollas.dev.br\n"
+            f"Fonte: https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+            f"serie-historica-de-precos-de-combustiveis\n"
+        )
+        enviar(f"[OK] Pipeline combustíveis — {status} (semana {validacao['semana']})", corpo)
+
+    extracao = extrair()
+    validacao = validar_gold()
+    extracao >> bronze_para_silver >> silver_para_gold >> validacao
+    notificar_sucesso(extracao, validacao)
 
 
 anp_precos_combustiveis()
